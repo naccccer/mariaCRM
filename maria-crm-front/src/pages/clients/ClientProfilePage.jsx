@@ -1,11 +1,11 @@
 ﻿// این صفحه جزئیات پرونده یک مشتری را با URL اختصاصی نمایش می‌دهد.
 
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, Phone, Wallet } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CLIENT_HISTORY, EXTENDED_CLIENTS } from '../../data/mockData';
-
-const PIPELINE_STEPS = ['سرنخ جدید', 'مذاکره اولیه', 'بازدید / جلسه', 'پیش‌نویس قرارداد', 'موفق'];
+import { apiClient } from '../../lib/apiClient';
+import { formatFaDateTime } from '../../lib/date/faDate';
 
 /**
  * وظیفه کامپوننت: نمایش پروفایل مشتری بر اساس شناسه مسیر.
@@ -15,19 +15,44 @@ const PIPELINE_STEPS = ['سرنخ جدید', 'مذاکره اولیه', 'باز�
 export default function ClientProfilePage() {
   const navigate = useNavigate();
   const { clientId } = useParams();
+  const queryClient = useQueryClient();
 
-  const client = useMemo(
-    () => EXTENDED_CLIENTS.find((item) => item.id === Number(clientId)),
-    [clientId],
-  );
+  const contactQuery = useQuery({
+    queryKey: ['contact', clientId],
+    queryFn: () => apiClient.get(`/contacts/${clientId}`),
+  });
 
-  const [pipelineStep, setPipelineStep] = useState(client?.pipeline ?? 0);
+  const timelineQuery = useQuery({
+    queryKey: ['contact-timeline', clientId],
+    queryFn: () => apiClient.get(`/contacts/${clientId}/timeline`),
+  });
 
-  if (!client) {
+  const dealsQuery = useQuery({
+    queryKey: ['deals', 'by-contact', clientId],
+    queryFn: () => apiClient.get(`/deals?contact_id=${clientId}`),
+  });
+
+  const moveStageMutation = useMutation({
+    mutationFn: ({ dealId, stageId }) => apiClient.post(`/deals/${dealId}/move-stage`, { stage_id: stageId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals', 'by-contact', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['contact-timeline', clientId] });
+    },
+  });
+
+  const contact = contactQuery.data?.contact;
+  const stages = dealsQuery.data?.stages || [];
+  const activeDeal = useMemo(() => (dealsQuery.data?.items || [])[0] || null, [dealsQuery.data?.items]);
+
+  if (contactQuery.isLoading) {
+    return <div className="text-sm text-gray-500">در حال دریافت پرونده مشتری...</div>;
+  }
+
+  if (!contact) {
     return (
       <div className="bg-white p-12 rounded-xl text-center border border-gray-200 shadow-sm">
         <h3 className="text-lg font-bold text-gray-700">پرونده مشتری پیدا نشد</h3>
-        <p className="text-sm text-gray-500 mt-2">شناسه وارد شده معتبر نیست یا داده نمونه برای آن وجود ندارد.</p>
+        <p className="text-sm text-gray-500 mt-2">شناسه وارد شده معتبر نیست یا داده‌ای برای آن وجود ندارد.</p>
         <button
           onClick={() => navigate('/clients')}
           className="mt-5 bg-[#006039] text-white px-5 py-2 rounded-lg text-sm font-bold"
@@ -50,10 +75,10 @@ export default function ClientProfilePage() {
           </button>
 
           <div>
-            <h2 className="text-xl font-bold text-gray-900">{client.name}</h2>
+            <h2 className="text-xl font-bold text-gray-900">{contact.name}</h2>
             <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-              <span>{client.type}</span>
-              <span dir="ltr">{client.phone}</span>
+              <span>{contact.type || '-'}</span>
+              <span dir="ltr">{contact.phone}</span>
             </div>
           </div>
         </div>
@@ -61,36 +86,42 @@ export default function ClientProfilePage() {
 
       <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
         <h3 className="text-sm font-bold text-gray-800 mb-6">وضعیت پرونده (قیف فروش)</h3>
-        <div className="flex items-center justify-between relative px-4">
-          <div className="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-1 bg-gray-100 z-0" />
-
-          {/* عرض نوار سبز با توجه به مرحله انتخابی محاسبه می‌شود. */}
-          <div
-            className="absolute right-4 top-1/2 -translate-y-1/2 h-1 bg-[#006039] z-0 transition-all duration-500"
-            style={{ width: `${(pipelineStep / (PIPELINE_STEPS.length - 1)) * 100}%` }}
-          />
-
-          {PIPELINE_STEPS.map((step, index) => (
+        {activeDeal ? (
+          <div className="flex items-center justify-between relative px-4">
+            <div className="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-1 bg-gray-100 z-0" />
             <div
-              key={step}
-              onClick={() => setPipelineStep(index)}
-              className="relative z-10 flex flex-col items-center gap-2 cursor-pointer group bg-white"
-            >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 border-2 ${
-                  index <= pipelineStep
-                    ? 'bg-[#006039] border-[#006039] text-white'
-                    : 'bg-white border-gray-300 text-gray-400'
-                }`}
-              >
-                {index < pipelineStep ? <Check size={16} /> : <span className="text-xs font-bold">{index + 1}</span>}
-              </div>
-              <span className={`text-xs font-bold ${index <= pipelineStep ? 'text-[#006039]' : 'text-gray-500'}`}>
-                {step}
-              </span>
-            </div>
-          ))}
-        </div>
+              className="absolute right-4 top-1/2 -translate-y-1/2 h-1 bg-[#006039] z-0 transition-all duration-500"
+              style={{
+                width: `${Math.max(0, ((stages.findIndex((item) => Number(item.id) === Number(activeDeal.stage_id)) + 1) / stages.length) * 100)}%`,
+              }}
+            />
+
+            {stages.map((stage, index) => {
+              const currentIndex = stages.findIndex((item) => Number(item.id) === Number(activeDeal.stage_id));
+              const isDone = index < currentIndex;
+              const isActive = index <= currentIndex;
+
+              return (
+                <div
+                  key={stage.id}
+                  onClick={() => moveStageMutation.mutate({ dealId: activeDeal.id, stageId: stage.id })}
+                  className="relative z-10 flex flex-col items-center gap-2 cursor-pointer group bg-white"
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 border-2 ${
+                      isActive ? 'bg-[#006039] border-[#006039] text-white' : 'bg-white border-gray-300 text-gray-400'
+                    }`}
+                  >
+                    {isDone ? <Check size={16} /> : <span className="text-xs font-bold">{index + 1}</span>}
+                  </div>
+                  <span className={`text-xs font-bold ${isActive ? 'text-[#006039]' : 'text-gray-500'}`}>{stage.name}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-sm text-gray-500">برای این مشتری هنوز فرصت فروش ثبت نشده است.</div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -103,12 +134,12 @@ export default function ClientProfilePage() {
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] text-gray-500 font-bold block">بودجه</label>
-                <div className="text-sm font-bold text-gray-900 mt-0.5">{client.budget}</div>
+                <div className="text-sm font-bold text-gray-900 mt-0.5">{contact.budget || '-'}</div>
               </div>
 
               <div>
                 <label className="text-[10px] text-gray-500 font-bold block">پروژه هدف</label>
-                <div className="text-sm font-bold text-gray-900 mt-0.5">{client.interest}</div>
+                <div className="text-sm font-bold text-gray-900 mt-0.5">{contact.interest || '-'}</div>
               </div>
             </div>
           </div>
@@ -120,11 +151,9 @@ export default function ClientProfilePage() {
           </div>
 
           <div className="p-5 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
-            {CLIENT_HISTORY.map((item, index) => (
-              <div key={item.id} className="relative pl-4">
-                {index !== CLIENT_HISTORY.length - 1 && (
-                  <div className="absolute right-[11px] top-6 bottom-[-24px] w-px bg-gray-200" />
-                )}
+            {(timelineQuery.data?.items || []).map((item, index, arr) => (
+              <div key={`${item.item_type}-${item.id}`} className="relative pl-4">
+                {index !== arr.length - 1 && <div className="absolute right-[11px] top-6 bottom-[-24px] w-px bg-gray-200" />}
 
                 <div className="flex gap-4">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center bg-gray-100 text-gray-600 shrink-0 z-10">
@@ -133,10 +162,12 @@ export default function ClientProfilePage() {
 
                   <div className="flex-1 bg-gray-50 rounded-lg p-3 border border-gray-100">
                     <p className="text-xs text-gray-600 leading-relaxed">{item.text}</p>
+                    <div className="text-[11px] text-gray-400 mt-1">{formatFaDateTime(item.happened_at)}</div>
                   </div>
                 </div>
               </div>
             ))}
+            {timelineQuery.isLoading ? <div className="text-sm text-gray-500">در حال دریافت تاریخچه...</div> : null}
           </div>
         </div>
       </div>

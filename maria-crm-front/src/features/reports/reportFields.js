@@ -32,7 +32,7 @@ export const CLIENT_REPORT_FIELDS = [
   {
     id: 'date',
     label: 'تاریخ ثبت',
-    getValue: (client) => client.date,
+    getValue: (client) => client.date ?? client.created_at,
   },
 ];
 

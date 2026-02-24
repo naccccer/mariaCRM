@@ -1,13 +1,15 @@
 ﻿// این صفحه لیست مشتریان/سرنخ‌ها را نمایش می‌دهد و مودال‌های مخصوص همین صفحه را مدیریت می‌کند.
 
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Eye, FileDown, FileText, Filter, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { EXTENDED_CLIENTS } from '../../data/mockData';
 import FollowUpModal from '../../features/activities/FollowUpModal';
 import { exportClientsToExcel, exportClientsToPdf } from '../../features/reports/exportClients';
 import PdfFieldsModal from '../../features/reports/PdfFieldsModal';
 import { CLIENT_REPORT_FIELDS, DEFAULT_CLIENT_REPORT_FIELD_IDS } from '../../features/reports/reportFields';
+import { apiClient } from '../../lib/apiClient';
+import { toIsoDateTime } from '../../lib/date/faDate';
 
 /**
  * وظیفه کامپوننت: نمایش جدول مشتریان و اکشن‌های وابسته.
@@ -16,13 +18,34 @@ import { CLIENT_REPORT_FIELDS, DEFAULT_CLIENT_REPORT_FIELD_IDS } from '../../fea
  */
 export default function ClientsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
+  const [search, setSearch] = useState('');
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+  const [selectedClientName, setSelectedClientName] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPdfFieldIds, setSelectedPdfFieldIds] = useState(DEFAULT_CLIENT_REPORT_FIELD_IDS);
 
+  const contactsQuery = useQuery({
+    queryKey: ['contacts', { search }],
+    queryFn: () => apiClient.get(`/contacts${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  });
+
+  const createActivityMutation = useMutation({
+    mutationFn: (payload) => apiClient.post('/activities', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      setIsFollowUpModalOpen(false);
+      setSelectedClientName('');
+      setSelectedClientId(null);
+    },
+  });
+
+  const clients = useMemo(() => contactsQuery.data?.items || [], [contactsQuery.data?.items]);
+
   const handleExcelExport = () => {
-    exportClientsToExcel(EXTENDED_CLIENTS);
+    exportClientsToExcel(clients);
   };
 
   const handlePdfFieldToggle = (fieldId) => {
@@ -37,7 +60,7 @@ export default function ClientsPage() {
 
   const handlePdfExport = async () => {
     try {
-      await exportClientsToPdf(EXTENDED_CLIENTS, selectedPdfFieldIds);
+      await exportClientsToPdf(clients, selectedPdfFieldIds);
       setIsPdfModalOpen(false);
     } catch (error) {
       console.error(error);
@@ -56,6 +79,8 @@ export default function ClientsPage() {
                 type="text"
                 placeholder="جستجو مشتری..."
                 className="w-full bg-gray-50 border border-gray-200 rounded-lg pr-9 pl-4 py-2 text-sm focus:border-[#006039] focus:outline-none"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
               />
             </div>
 
@@ -94,7 +119,7 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {EXTENDED_CLIENTS.map((client) => (
+                {clients.map((client) => (
                   <tr key={client.id} className="hover:bg-[#f0fdf4]/50 transition-colors">
                     <td className="px-5 py-3.5">
                       <div className="font-bold text-gray-900">{client.name}</div>
@@ -105,15 +130,15 @@ export default function ClientsPage() {
 
                     <td className="px-5 py-3.5">
                       <div className="text-[#006039] font-bold text-xs" dir="rtl">
-                        {client.budget}
+                        {client.budget || '-'}
                       </div>
                     </td>
 
-                    <td className="px-5 py-3.5 text-gray-600 font-medium text-xs">{client.interest}</td>
+                    <td className="px-5 py-3.5 text-gray-600 font-medium text-xs">{client.interest || '-'}</td>
 
                     <td className="px-5 py-3.5 text-center">
                       <span className="inline-block px-3 py-1 rounded-md text-[11px] font-bold border bg-gray-100 text-gray-600">
-                        {client.status}
+                        {client.status || '-'}
                       </span>
                     </td>
 
@@ -127,7 +152,11 @@ export default function ClientsPage() {
                         </button>
 
                         <button
-                          onClick={() => setIsFollowUpModalOpen(true)}
+                          onClick={() => {
+                            setSelectedClientId(client.id);
+                            setSelectedClientName(client.name);
+                            setIsFollowUpModalOpen(true);
+                          }}
                           className="flex items-center gap-1 bg-gray-100 hover:bg-[#006039] hover:text-white text-gray-600 px-3 py-1.5 rounded-md transition-colors text-xs font-bold"
                         >
                           <Clock size={14} /> پیگیری
@@ -136,6 +165,13 @@ export default function ClientsPage() {
                     </td>
                   </tr>
                 ))}
+                {contactsQuery.isLoading ? (
+                  <tr>
+                    <td className="px-5 py-10 text-sm text-gray-500 text-center" colSpan={5}>
+                      در حال دریافت مشتریان...
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -151,7 +187,27 @@ export default function ClientsPage() {
         onGenerate={handlePdfExport}
       />
 
-      <FollowUpModal isOpen={isFollowUpModalOpen} onClose={() => setIsFollowUpModalOpen(false)} />
+      <FollowUpModal
+        isOpen={isFollowUpModalOpen}
+        onClose={() => {
+          setIsFollowUpModalOpen(false);
+          setSelectedClientName('');
+          setSelectedClientId(null);
+        }}
+        initialClientName={selectedClientName}
+        lockClient
+        onSubmit={(values) =>
+          createActivityMutation.mutate({
+            contact_id: selectedClientId,
+            title: values.title,
+            description: values.description,
+            type: values.type,
+            due_at: toIsoDateTime(values.due_at),
+            status: values.tab === 'فعالیت‌ها' ? 'done' : 'todo',
+          })
+        }
+        submitting={createActivityMutation.isPending}
+      />
     </>
   );
 }

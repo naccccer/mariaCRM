@@ -1,6 +1,7 @@
 ﻿// این کامپوننت هدر بالای صفحه را نمایش می‌دهد و اکشن‌های عمومی را نگه می‌دارد.
 
 import { Plus, Search } from 'lucide-react';
+import { useAuth } from '../../features/auth/useAuth';
 
 /**
  * وظیفه کامپوننت: نمایش جست‌وجوی سراسری و دکمه ثبت سرنخ.
@@ -8,6 +9,8 @@ import { Plus, Search } from 'lucide-react';
  * رفتار: با کلیک روی دکمه، مودال افزودن سرنخ باز می‌شود.
  */
 export default function TopHeader({ onOpenLeadModal }) {
+  const { user } = useAuth();
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
       <div className="flex items-center bg-gray-100/80 rounded-lg px-3 py-1.5 focus-within:border-[#006039] focus-within:bg-white transition-all w-80 border border-transparent">
@@ -21,8 +24,8 @@ export default function TopHeader({ onOpenLeadModal }) {
 
       <div className="flex items-center gap-5">
         <div className="hidden lg:block text-right">
-          <p className="text-sm font-bold text-gray-800">براتی</p>
-          <p className="text-[10px] text-gray-500">مدیر سیستم (Admin)</p>
+          <p className="text-sm font-bold text-gray-800">{user?.full_name || 'کاربر'}</p>
+          <p className="text-[10px] text-gray-500">{user?.email || 'نامشخص'}</p>
         </div>
 
         <button

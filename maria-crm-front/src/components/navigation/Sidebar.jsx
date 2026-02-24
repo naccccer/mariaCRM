@@ -1,6 +1,7 @@
 ﻿// این کامپوننت منوی اصلی برنامه را در سمت راست نمایش می‌دهد.
 
-import { Building, LayoutDashboard, ListTodo, LogOut, ShieldCheck, Users } from 'lucide-react';
+import { BarChart3, Building, LayoutDashboard, ListTodo, LogOut, ShieldCheck, Target, Ticket, Users } from 'lucide-react';
+import { useAuth } from '../../features/auth/useAuth';
 import SidebarItem from './SidebarItem';
 
 /**
@@ -9,6 +10,9 @@ import SidebarItem from './SidebarItem';
  * رفتار: مسیرها را به شکل URL-based نمایش می‌دهد.
  */
 export default function Sidebar() {
+  const { user, logout } = useAuth();
+  const canManageUsers = user?.permissions?.includes('users.manage');
+
   return (
     <aside className="w-64 bg-white border-l border-gray-200 flex flex-col justify-between hidden md:flex z-20 shadow-sm shrink-0">
       <div>
@@ -21,14 +25,20 @@ export default function Sidebar() {
         <nav className="mt-4 space-y-1 px-2">
           <SidebarItem icon={LayoutDashboard} label="پیشخوان" to="/dashboard" />
           <SidebarItem icon={Users} label="مشتریان و سرنخ‌ها" to="/clients" />
+          <SidebarItem icon={Target} label="فرصت‌های فروش" to="/deals" />
           <SidebarItem icon={ListTodo} label="مدیریت فعالیت‌ها" to="/activities" />
+          <SidebarItem icon={Ticket} label="تیکت‌ها" to="/tickets" />
           <SidebarItem icon={Building} label="برج‌ها و پروژه‌ها" to="/projects" />
-          <SidebarItem icon={ShieldCheck} label="کاربران سیستم" to="/admin" />
+          <SidebarItem icon={BarChart3} label="گزارش‌ها" to="/reports" />
+          {canManageUsers ? <SidebarItem icon={ShieldCheck} label="کاربران سیستم" to="/users" /> : null}
         </nav>
       </div>
 
       <div className="p-4 border-t border-gray-100">
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-bold text-sm">
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-bold text-sm"
+        >
           <LogOut size={18} className="rotate-180" /> خروج از سیستم
         </button>
       </div>

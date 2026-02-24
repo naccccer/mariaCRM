@@ -3,11 +3,16 @@
 import { matchPath } from 'react-router-dom';
 
 export const ROUTE_META = [
+  { pattern: '/login', title: 'ورود', showPageTitle: false },
   { pattern: '/dashboard', title: 'پیشخوان', showPageTitle: true },
   { pattern: '/clients', title: 'مشتریان و سرنخ‌ها', showPageTitle: true },
   { pattern: '/clients/:clientId', title: 'پرونده مشتری', showPageTitle: false },
   { pattern: '/activities', title: 'مدیریت فعالیت‌ها', showPageTitle: true },
+  { pattern: '/deals', title: 'قیف فرصت‌های فروش', showPageTitle: true },
+  { pattern: '/tickets', title: 'تیکت‌های پشتیبانی', showPageTitle: true },
   { pattern: '/projects', title: 'برج‌ها و پروژه‌ها', showPageTitle: true },
+  { pattern: '/reports', title: 'گزارش‌های پیشرفته', showPageTitle: true },
+  { pattern: '/users', title: 'مدیریت کاربران و نقش‌ها', showPageTitle: true },
   { pattern: '/admin', title: 'کاربران سیستم', showPageTitle: true },
   { pattern: '*', title: 'صفحه نامعتبر', showPageTitle: true },
 ];
