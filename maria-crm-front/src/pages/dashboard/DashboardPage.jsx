@@ -1,83 +1,175 @@
-﻿// این صفحه خلاصه وضعیت CRM را با KPIها و لیست مشتریان اخیر نمایش می‌دهد.
+﻿import { Link } from 'react-router-dom';
+import { useAuth } from '../../features/auth/useAuth';
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedback';
+import StatCard from '../../components/ui/StatCard';
+import Badge from '../../components/ui/Badge';
+import {
+  useActivities,
+  useDeals,
+  useReportsKpi,
+  useTickets,
+} from '../../hooks/useCrmApi';
+import {
+  activityStatusLabels,
+  labelFromMap,
+  localizePipelineStage,
+  ticketPriorityLabels,
+  ticketStatusLabels,
+} from '../../lib/constants';
+import { formatCurrency, formatDateTime } from '../../lib/formatters';
 
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../../lib/apiClient';
-
-/**
- * وظیفه کامپوننت: نمایش نمای پیشخوان.
- * ورودی‌ها: ندارد.
- * رفتار: داده‌ها را از API خوانده و به شکل کارت/جدول نمایش می‌دهد.
- */
 export default function DashboardPage() {
-  const kpiQuery = useQuery({
-    queryKey: ['report-kpi'],
-    queryFn: () => apiClient.get('/reports/kpi'),
-  });
+  const { hasPermission } = useAuth();
 
-  const contactsQuery = useQuery({
-    queryKey: ['contacts', 'recent'],
-    queryFn: () => apiClient.get('/contacts'),
-  });
+  const canReadReports = hasPermission('reports.read');
+  const canReadDeals = hasPermission('deals.read');
+  const canReadActivities = hasPermission('activities.read');
+  const canReadTickets = hasPermission('tickets.read');
 
-  const kpiData = [
-    { title: 'کل مشتریان', value: kpiQuery.data?.total_contacts ?? 0 },
-    { title: 'فرصت‌های باز', value: kpiQuery.data?.open_deals ?? 0 },
-    { title: 'کل پروژه‌ها', value: kpiQuery.data?.total_projects ?? 0 },
-    { title: 'فعالیت‌های انجام‌شده', value: kpiQuery.data?.completed_activities ?? 0 },
-  ];
+  const kpiQuery = useReportsKpi({ enabled: canReadReports });
+  const dealsQuery = useDeals({}, { enabled: canReadDeals });
+  const activitiesQuery = useActivities({}, { enabled: canReadActivities });
+  const ticketsQuery = useTickets({}, { enabled: canReadTickets });
+
+  if (!canReadReports && !canReadDeals && !canReadActivities && !canReadTickets) {
+    return <EmptyState message="برای مشاهده داشبورد، دسترسی لازم تعریف نشده است." />;
+  }
+
+  if (kpiQuery.isLoading && canReadReports) {
+    return <LoadingState message="در حال بارگذاری داشبورد..." />;
+  }
+
+  if (kpiQuery.error && canReadReports) {
+    return <ErrorState message={kpiQuery.error.message} onRetry={kpiQuery.refetch} />;
+  }
+
+  const kpi = kpiQuery.data || {
+    total_contacts: 0,
+    open_deals: 0,
+    total_projects: 0,
+    completed_activities: 0,
+  };
+
+  const recentDeals = (dealsQuery.data?.items || []).slice(0, 5);
+  const upcomingActivities = (activitiesQuery.data?.items || []).slice(0, 6);
+  const recentTickets = (ticketsQuery.data?.items || []).slice(0, 5);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpiData.map((kpi) => (
-          <div key={kpi.title} className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
-            <h3 className="text-sm font-medium text-gray-500">{kpi.title}</h3>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'sans-serif' }}>
-                {kpiQuery.isLoading ? '...' : kpi.value}
-              </span>
-            </div>
+    <div className="page-stack">
+      <section className="stats-grid">
+        <StatCard label="کل مشتریان" value={kpi.total_contacts} hint="مجموع مخاطبان ثبت‌شده" />
+        <StatCard label="معامله‌های باز" value={kpi.open_deals} hint="فرصت‌های فعال فروش" />
+        <StatCard label="پروژه‌های فعال" value={kpi.total_projects} hint="پروژه‌های موجود در سیستم" />
+        <StatCard label="فعالیت تکمیل‌شده" value={kpi.completed_activities} hint="کارهای انجام‌شده" />
+      </section>
+
+      <section className="grid-2">
+        <article className="panel">
+          <div className="panel-head">
+            <h2>فرصت‌های فروش اخیر</h2>
+            <Link to="/deals" className="text-link">
+              مشاهده قیف
+            </Link>
           </div>
-        ))}
-      </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-          <h2 className="text-base font-bold text-gray-800">مشتریان اخیر</h2>
-        </div>
+          {dealsQuery.isLoading ? <LoadingState message="در حال دریافت فرصت‌ها..." /> : null}
+          {dealsQuery.error ? <ErrorState message={dealsQuery.error.message} onRetry={dealsQuery.refetch} /> : null}
+          {!dealsQuery.isLoading && !dealsQuery.error && recentDeals.length === 0 ? (
+            <EmptyState message="معامله‌ای ثبت نشده است." />
+          ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse">
-            <thead>
-              <tr className="text-gray-400 text-xs uppercase border-b border-gray-100">
-                <th className="px-5 py-3 font-bold">مشتری</th>
-                <th className="px-5 py-3 font-bold">بودجه</th>
-                <th className="px-5 py-3 font-bold">وضعیت</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50 text-sm">
-              {(contactsQuery.data?.items || []).slice(0, 5).map((client) => (
-                <tr key={client.id}>
-                  <td className="px-5 py-3 font-bold">{client.name}</td>
-                  <td className="px-5 py-3 text-[#006039] font-bold" dir="ltr">
-                    {client.budget || '-'}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-600">{client.status || '-'}</span>
-                  </td>
-                </tr>
+          {recentDeals.length > 0 ? (
+            <div className="list-stack">
+              {recentDeals.map((deal) => (
+                <div className="list-item" key={deal.id}>
+                  <div>
+                    <strong>{deal.title}</strong>
+                    <small>{deal.contact_name}</small>
+                  </div>
+                  <div className="list-meta">
+                    <span>{formatCurrency(deal.amount)}</span>
+                    <Badge tone="info">{localizePipelineStage(deal.stage_name)}</Badge>
+                  </div>
+                </div>
               ))}
-              {contactsQuery.isLoading ? (
-                <tr>
-                  <td className="px-5 py-6 text-sm text-gray-500" colSpan={3}>
-                    در حال دریافت داده‌ها...
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+            </div>
+          ) : null}
+        </article>
+
+        <article className="panel">
+          <div className="panel-head">
+            <h2>پیگیری‌های پیش‌رو</h2>
+            <Link to="/activities" className="text-link">
+              مدیریت فعالیت‌ها
+            </Link>
+          </div>
+
+          {activitiesQuery.isLoading ? <LoadingState message="در حال دریافت فعالیت‌ها..." /> : null}
+          {activitiesQuery.error ? <ErrorState message={activitiesQuery.error.message} onRetry={activitiesQuery.refetch} /> : null}
+          {!activitiesQuery.isLoading && !activitiesQuery.error && upcomingActivities.length === 0 ? (
+            <EmptyState message="فعالیتی ثبت نشده است." />
+          ) : null}
+
+          {upcomingActivities.length > 0 ? (
+            <div className="list-stack">
+              {upcomingActivities.map((activity) => (
+                <div className="list-item" key={activity.id}>
+                  <div>
+                    <strong>{activity.title}</strong>
+                    <small>{activity.client || 'بدون مشتری'}</small>
+                  </div>
+                  <div className="list-meta">
+                    <span>{formatDateTime(activity.due_at)}</span>
+                    <Badge tone={activity.status === 'done' ? 'success' : 'warning'}>
+                      {labelFromMap(activityStatusLabels, activity.status)}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </article>
+      </section>
+
+      <article className="panel">
+        <div className="panel-head">
+          <h2>تیکت‌های اخیر</h2>
+          <Link to="/tickets" className="text-link">
+            مشاهده تیکت‌ها
+          </Link>
         </div>
-      </div>
+
+        {ticketsQuery.isLoading ? <LoadingState message="در حال دریافت تیکت‌ها..." /> : null}
+        {ticketsQuery.error ? <ErrorState message={ticketsQuery.error.message} onRetry={ticketsQuery.refetch} /> : null}
+        {!ticketsQuery.isLoading && !ticketsQuery.error && recentTickets.length === 0 ? (
+          <EmptyState message="تیکتی ثبت نشده است." />
+        ) : null}
+
+        {recentTickets.length > 0 ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>موضوع</th>
+                  <th>مشتری</th>
+                  <th>وضعیت</th>
+                  <th>اولویت</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentTickets.map((ticket) => (
+                  <tr key={ticket.id}>
+                    <td>{ticket.subject}</td>
+                    <td>{ticket.contact_name || '---'}</td>
+                    <td>{labelFromMap(ticketStatusLabels, ticket.status)}</td>
+                    <td>{labelFromMap(ticketPriorityLabels, ticket.priority)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </article>
     </div>
   );
 }

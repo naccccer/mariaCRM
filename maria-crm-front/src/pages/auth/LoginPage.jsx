@@ -1,79 +1,79 @@
-﻿import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+﻿import { useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../features/auth/useAuth';
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState('admin@mariacrm.local');
-  const [password, setPassword] = useState('Admin@123');
+  const { login, loading, isAuthenticated } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const targetPath = location.state?.from || '/dashboard';
+  const redirectTo = location.state?.from || '/dashboard';
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate(targetPath, { replace: true });
-    }
-  }, [isAuthenticated, navigate, targetPath]);
+  if (!loading && isAuthenticated) {
+    return <Navigate to={redirectTo} replace />;
+  }
 
-  const handleSubmit = async (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError('');
-    setSubmitting(true);
+    setIsSubmitting(true);
 
     try {
       await login(email, password);
-      navigate(targetPath, { replace: true });
-    } catch (requestError) {
-      setError(requestError.message || 'ورود ناموفق بود.');
+    } catch (submitError) {
+      if (submitError.status === 401) {
+        setError('ایمیل یا رمز عبور اشتباه است.');
+      } else {
+        setError(submitError.message || 'ورود انجام نشد.');
+      }
     } finally {
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-amber-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white border border-gray-100 rounded-2xl shadow-xl p-8">
-        <h1 className="text-2xl font-black text-gray-900 text-center">ورود به MariaCRM</h1>
-        <p className="text-sm text-gray-500 mt-2 text-center">برای ادامه وارد حساب خود شوید.</p>
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-brand">
+          <span>ماریا سی آر ام</span>
+          <h1>ورود به پنل مدیریت ارتباط با مشتری</h1>
+          <p>برای ادامه، ایمیل و رمز عبور خود را وارد کنید.</p>
+        </div>
 
-        <form className="space-y-4 mt-6" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">ایمیل</label>
+        <form className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            <span>ایمیل</span>
             <input
               type="email"
-              className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#006039]"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="ایمیل سازمانی"
               required
             />
-          </div>
+          </label>
 
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">رمز عبور</label>
+          <label>
+            <span>رمز عبور</span>
             <input
               type="password"
-              className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[#006039]"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              placeholder="رمز عبور"
               required
             />
-          </div>
+          </label>
 
-          {error ? <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div> : null}
+          {error ? <p className="form-error">{error}</p> : null}
 
-          <button
-            type="submit"
-            className="w-full bg-[#006039] hover:bg-[#004d2e] text-white py-2.5 rounded-lg text-sm font-bold disabled:opacity-70"
-            disabled={submitting}
-          >
-            {submitting ? 'در حال ورود...' : 'ورود'}
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? 'در حال ورود...' : 'ورود'}
           </button>
         </form>
       </div>
     </div>
   );
 }
+

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Support\Auth;
+use App\Support\HttpException;
 use App\Support\Request;
 use App\Support\Validator;
 
@@ -22,7 +23,7 @@ final class AuthController
 
         $user = Auth::authenticate((string) $body['email'], (string) $body['password']);
         if (!$user) {
-            return ['status' => 401, 'error' => 'Invalid credentials'];
+            throw new HttpException('Invalid credentials', 401);
         }
 
         Auth::login($user);

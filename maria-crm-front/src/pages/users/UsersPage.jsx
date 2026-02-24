@@ -1,98 +1,307 @@
-﻿import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
-import { apiClient } from '../../lib/apiClient';
+﻿import { useState } from 'react';
+import Modal from '../../components/ui/Modal';
+import Badge from '../../components/ui/Badge';
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedback';
+import { useCreateUser, useUpdateUser, useUsers } from '../../hooks/useCrmApi';
+import { labelFromMap, roleCodeLabels } from '../../lib/constants';
+import { formatDate } from '../../lib/formatters';
+
+function normalizeRoleIds(roles, roleCodes = []) {
+  return roles
+    .filter((role) => roleCodes.includes(role.code))
+    .map((role) => String(role.id));
+}
 
 export default function UsersPage() {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role_ids: [] });
+  const usersQuery = useUsers();
+  const createUserMutation = useCreateUser();
+  const updateUserMutation = useUpdateUser();
 
-  const usersQuery = useQuery({ queryKey: ['users'], queryFn: () => apiClient.get('/users') });
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState(null);
 
-  const createMutation = useMutation({
-    mutationFn: (payload) => apiClient.post('/users', payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      setForm({ full_name: '', email: '', password: '', role_ids: [] });
-    },
+  const [createForm, setCreateForm] = useState({
+    full_name: '',
+    email: '',
+    password: '',
+    is_active: true,
+    role_ids: [],
   });
 
-  const roleOptions = useMemo(() => usersQuery.data?.roles || [], [usersQuery.data?.roles]);
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    email: '',
+    password: '',
+    is_active: true,
+    role_ids: [],
+  });
+
+  if (usersQuery.isLoading) {
+    return <LoadingState message="در حال دریافت کاربران..." />;
+  }
+
+  if (usersQuery.error) {
+    return <ErrorState message={usersQuery.error.message} onRetry={usersQuery.refetch} />;
+  }
+
+  const users = usersQuery.data?.users || [];
+  const roles = usersQuery.data?.roles || [];
+
+  function getRoleLabel(roleCode, fallback = '') {
+    const translated = labelFromMap(roleCodeLabels, roleCode);
+    return translated === roleCode ? fallback || roleCode : translated;
+  }
+
+  function toggleRole(roleId, mode) {
+    const formSetter = mode === 'create' ? setCreateForm : setEditForm;
+
+    formSetter((prev) => {
+      const current = prev.role_ids;
+      const exists = current.includes(String(roleId));
+      const next = exists
+        ? current.filter((item) => item !== String(roleId))
+        : [...current, String(roleId)];
+
+      return { ...prev, role_ids: next };
+    });
+  }
+
+  async function submitCreate(event) {
+    event.preventDefault();
+
+    await createUserMutation.mutateAsync({
+      ...createForm,
+      role_ids: createForm.role_ids.map(Number),
+      is_active: Boolean(createForm.is_active),
+    });
+
+    setCreateModalOpen(false);
+    setCreateForm({ full_name: '', email: '', password: '', is_active: true, role_ids: [] });
+  }
+
+  function openEdit(user) {
+    setEditingUserId(user.id);
+    setEditForm({
+      full_name: user.full_name,
+      email: user.email,
+      password: '',
+      is_active: user.is_active,
+      role_ids: normalizeRoleIds(roles, user.role_codes),
+    });
+    setEditModalOpen(true);
+  }
+
+  async function submitEdit(event) {
+    event.preventDefault();
+
+    if (!editingUserId) {
+      return;
+    }
+
+    const payload = {
+      full_name: editForm.full_name,
+      email: editForm.email,
+      is_active: Boolean(editForm.is_active),
+      role_ids: editForm.role_ids.map(Number),
+    };
+
+    if (editForm.password) {
+      payload.password = editForm.password;
+    }
+
+    await updateUserMutation.mutateAsync({
+      id: editingUserId,
+      payload,
+    });
+
+    setEditModalOpen(false);
+    setEditingUserId(null);
+  }
 
   return (
-    <div className="space-y-4">
-      <section className="bg-white border border-gray-100 shadow-sm rounded-xl p-4">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">ایجاد کاربر جدید</h2>
-        <form
-          className="grid grid-cols-1 md:grid-cols-4 gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            createMutation.mutate(form);
-          }}
-        >
-          <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="نام کامل"
-            value={form.full_name}
-            onChange={(event) => setForm((prev) => ({ ...prev, full_name: event.target.value }))}
-            required
-          />
-          <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="ایمیل"
-            type="email"
-            value={form.email}
-            onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-            required
-          />
-          <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="رمز عبور"
-            type="password"
-            value={form.password}
-            onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-            required
-          />
-          <select
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-            value={form.role_ids[0] || ''}
-            onChange={(event) => setForm((prev) => ({ ...prev, role_ids: event.target.value ? [Number(event.target.value)] : [] }))}
-          >
-            <option value="">انتخاب نقش</option>
-            {roleOptions.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
+    <div className="page-stack">
+      <section className="panel">
+        <div className="toolbar-wrap">
+          <div>
+            <h2>کاربران و نقش‌ها</h2>
+            <p className="muted">مدیریت دسترسی‌ها فقط برای مدیر سیستم فعال است.</p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => setCreateModalOpen(true)}>
+            کاربر جدید
+          </button>
+        </div>
 
-          <button type="submit" className="md:col-span-4 bg-[#006039] text-white rounded-lg py-2.5 text-sm font-bold">
-            ایجاد کاربر
+        {users.length === 0 ? (
+          <EmptyState message="کاربری ثبت نشده است." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>نام</th>
+                  <th>ایمیل</th>
+                  <th>نقش‌ها</th>
+                  <th>وضعیت</th>
+                  <th>تاریخ ثبت</th>
+                  <th>عملیات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td>{user.full_name}</td>
+                    <td>{user.email}</td>
+                    <td>
+                      <div className="chip-list">
+                        {user.role_codes.length > 0
+                          ? user.role_codes.map((roleCode) => (
+                              <Badge key={roleCode}>{getRoleLabel(roleCode)}</Badge>
+                            ))
+                          : '---'}
+                      </div>
+                    </td>
+                    <td>
+                      <Badge tone={user.is_active ? 'success' : 'danger'}>
+                        {user.is_active ? 'فعال' : 'غیرفعال'}
+                      </Badge>
+                    </td>
+                    <td>{formatDate(user.created_at)}</td>
+                    <td>
+                      <button type="button" className="btn btn-light" onClick={() => openEdit(user)}>
+                        ویرایش
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <Modal open={createModalOpen} onClose={() => setCreateModalOpen(false)} title="ثبت کاربر جدید" size="lg">
+        <form className="form-grid" onSubmit={submitCreate}>
+          <label>
+            <span>نام کامل</span>
+            <input
+              value={createForm.full_name}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, full_name: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label>
+            <span>ایمیل</span>
+            <input
+              type="email"
+              value={createForm.email}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, email: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label>
+            <span>رمز عبور</span>
+            <input
+              type="password"
+              value={createForm.password}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, password: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={createForm.is_active}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+            />
+            <span>کاربر فعال باشد</span>
+          </label>
+
+          <div className="role-picker">
+            <span>نقش‌ها</span>
+            <div className="role-grid">
+              {roles.map((role) => (
+                <label key={role.id} className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={createForm.role_ids.includes(String(role.id))}
+                    onChange={() => toggleRole(role.id, 'create')}
+                  />
+                  <span>{getRoleLabel(role.code, role.name)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button type="submit" className="btn btn-primary" disabled={createUserMutation.isPending}>
+            {createUserMutation.isPending ? 'در حال ثبت...' : 'ثبت کاربر'}
           </button>
         </form>
-      </section>
+      </Modal>
 
-      <section className="bg-white border border-gray-100 shadow-sm rounded-xl overflow-hidden">
-        <table className="w-full text-right text-sm">
-          <thead className="bg-gray-50 text-gray-600">
-            <tr>
-              <th className="px-4 py-3">نام</th>
-              <th className="px-4 py-3">ایمیل</th>
-              <th className="px-4 py-3">نقش‌ها</th>
-              <th className="px-4 py-3">وضعیت</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(usersQuery.data?.users || []).map((user) => (
-              <tr key={user.id} className="border-t border-gray-100">
-                <td className="px-4 py-3 font-bold text-gray-800">{user.full_name}</td>
-                <td className="px-4 py-3 text-gray-600">{user.email}</td>
-                <td className="px-4 py-3 text-gray-600">{(user.role_codes || []).join('، ') || '-'}</td>
-                <td className="px-4 py-3 text-gray-600">{user.is_active ? 'فعال' : 'غیرفعال'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="ویرایش کاربر" size="lg">
+        <form className="form-grid" onSubmit={submitEdit}>
+          <label>
+            <span>نام کامل</span>
+            <input
+              value={editForm.full_name}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, full_name: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label>
+            <span>ایمیل</span>
+            <input
+              type="email"
+              value={editForm.email}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, email: event.target.value }))}
+              required
+            />
+          </label>
+
+          <label>
+            <span>رمز عبور جدید (اختیاری)</span>
+            <input
+              type="password"
+              value={editForm.password}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, password: event.target.value }))}
+            />
+          </label>
+
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={editForm.is_active}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+            />
+            <span>کاربر فعال باشد</span>
+          </label>
+
+          <div className="role-picker">
+            <span>نقش‌ها</span>
+            <div className="role-grid">
+              {roles.map((role) => (
+                <label key={role.id} className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={editForm.role_ids.includes(String(role.id))}
+                    onChange={() => toggleRole(role.id, 'edit')}
+                  />
+                  <span>{getRoleLabel(role.code, role.name)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button type="submit" className="btn btn-primary" disabled={updateUserMutation.isPending}>
+            {updateUserMutation.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }

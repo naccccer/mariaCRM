@@ -1,76 +1,84 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../lib/apiClient';
 import { AuthContext } from './authStore';
 
+const authQueryKey = ['auth', 'me'];
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    let mounted = true;
+  const sessionQuery = useQuery({
+    queryKey: authQueryKey,
+    queryFn: async () => {
+      const data = await apiClient.get('/auth/me');
+      return data?.user || null;
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
 
-    apiClient
-      .get('/auth/me')
-      .then((data) => {
-        if (!mounted) {
-          return;
-        }
+  const login = useCallback(
+    async (email, password) => {
+      const data = await apiClient.post('/auth/login', { email, password });
 
-        setUser(data.user);
-      })
-      .catch(() => {
-        if (!mounted) {
-          return;
-        }
+      if (!data?.user) {
+        throw new Error('ورود ناموفق بود.');
+      }
 
-        setUser(null);
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoading(false);
-        }
-      });
+      queryClient.setQueryData(authQueryKey, data.user);
+      return data.user;
+    },
+    [queryClient],
+  );
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const login = async (email, password) => {
-    const data = await apiClient.post('/auth/login', { email, password });
-    setUser(data.user);
-    return data.user;
-  };
-
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await apiClient.post('/auth/logout', {});
     } finally {
-      setUser(null);
+      queryClient.setQueryData(authQueryKey, null);
+      queryClient.invalidateQueries();
     }
-  };
+  }, [queryClient]);
+
+  const refreshSession = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: authQueryKey });
+  }, [queryClient]);
 
   const hasPermission = useCallback(
     (permissionCode) => {
-      if (!user) {
-        return false;
+      if (!permissionCode) {
+        return true;
       }
 
-      return user.permissions?.includes(permissionCode) ?? false;
+      return sessionQuery.data?.permissions?.includes(permissionCode) ?? false;
     },
-    [user],
+    [sessionQuery.data?.permissions],
+  );
+
+  const hasAnyPermission = useCallback(
+    (permissions) => {
+      if (!Array.isArray(permissions) || permissions.length === 0) {
+        return true;
+      }
+
+      return permissions.some((permission) => hasPermission(permission));
+    },
+    [hasPermission],
   );
 
   const value = useMemo(
     () => ({
-      user,
-      loading,
+      user: sessionQuery.data || null,
+      loading: sessionQuery.isLoading,
+      isAuthenticated: Boolean(sessionQuery.data),
       login,
       logout,
+      refreshSession,
       hasPermission,
-      isAuthenticated: Boolean(user),
+      hasAnyPermission,
     }),
-    [user, loading, hasPermission],
+    [hasAnyPermission, hasPermission, login, logout, refreshSession, sessionQuery.data, sessionQuery.isLoading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
